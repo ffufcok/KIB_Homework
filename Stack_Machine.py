@@ -244,7 +244,7 @@ class Machine:
     def exec_func(self, name):
         func = self.heap_func[name]
         if func[0] == 'proc':
-            self.code = self.code[:self.now] + func[1] + self.code[self.now:]
+            self.code = self.code[:self.now + 1] + func[1] + self.code[self.now + 1:]
         else:
             func_machine = Machine('', old_code=self.code + func[1], now=self.now + 1, values_stack=self.values_stack,
                                    call_stack=self.call_stack, heap=self.heap, heap_func=self.heap_func)
