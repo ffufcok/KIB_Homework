@@ -30,6 +30,20 @@ def parse(text):
             yield tokval
 
 
+def exec_func(name, code, now, values_stack, call_stack, heap, heap_func):
+    func = heap_func[name]
+    if func[0] == 'proc':
+        return code[:now + 1] + func[1] + code[now + 1:]
+    else:
+        func_machine = Machine('', old_code=func[1][:-1],
+                               values_stack=values_stack,
+                               call_stack=call_stack,
+                               heap=heap,
+                               heap_func=heap_func)
+        func_machine.run()
+        return func_machine.top()
+
+
 def parse_funcs(lst):
     result_dict = dict()
     last_index = None
@@ -39,7 +53,7 @@ def parse_funcs(lst):
             last_index = i
             func_name = lst[i + 1]
         elif lst[i] == ';':
-            if i - 1 == 'return':
+            if lst[i - 1] == 'return':
                 result_dict[func_name] = ('func', lst[last_index + 2:i])
             else:
                 result_dict[func_name] = ('proc', lst[last_index + 2:i])
@@ -79,10 +93,8 @@ class Machine:
         self.heap_func = parse_funcs(self.code)
         self.code = del_func(self.code)
         self.heap_func.update(heap_func)
-        self.code = parse_help(old_code[:now] + self.code)
+        self.code = parse_help(old_code + self.code)
         self.now = now
-        print(self.code)
-        print(self.heap_func)
         self.heap = heap
         self.slo = {
             '+': self.add,
@@ -111,7 +123,6 @@ class Machine:
             'over': self.over,
             'info': self.info,
 
-
         }
 
     def pop(self):
@@ -131,7 +142,8 @@ class Machine:
         false_clause = list(parse(self.pop()))[:-2]
         true_clause = list(parse(self.pop()))[:-2]
 
-        condition_machine = Machine(condition, old_code=self.code, now=self.now + 1, values_stack=self.values_stack,
+        condition_machine = Machine(condition, old_code=self.code[:self.now + 1], now=self.now + 1,
+                                    values_stack=self.values_stack,
                                     call_stack=self.call_stack, heap=self.heap)
         condition_machine.run()
         decision = condition_machine.top()
@@ -241,22 +253,21 @@ class Machine:
             pass
         self.push(new_var)
 
-    def exec_func(self, name):
+    def exe_func(self, name):
         func = self.heap_func[name]
         if func[0] == 'proc':
-            self.code = self.code[:self.now + 1] + func[1] + self.code[self.now + 1:]
+            self.code = exec_func(name, self.code, self.now, self.values_stack, self.call_stack, self.heap,
+                                  self.heap_func)
         else:
-            func_machine = Machine('', old_code=self.code + func[1], now=self.now + 1, values_stack=self.values_stack,
-                                   call_stack=self.call_stack, heap=self.heap, heap_func=self.heap_func)
-            func_machine.run()
-            return_value = func_machine.top()
-            self.push(return_value)
+            vs = self.values_stack.copy()
+            self.push(exec_func(name, self.code, self.now, vs, self.call_stack, self.heap,
+                                self.heap_func))
 
     def run(self):
         # self.code.append('exit')
         while self.now < len(self.code):
             if self.code[self.now] in self.heap_func:
-                self.exec_func(self.code[self.now])
+                self.exe_func(self.code[self.now])
                 self.now += 1
             if self.code[self.now] in self.slo.keys():
                 self.slo[self.code[self.now]]()
@@ -264,20 +275,4 @@ class Machine:
             else:
                 self.push(self.code[self.now])
                 self.now += 1
-
-
-# Пример снизу определяет наличние корней у квадратного уравнения по коэффицеентам
-
-
-# a = Machine(
-#     "'Введите коэффицеент a' println read 'a' store \
-#      'Введите коэффицеент b' println read 'b' store \
-#      'Введите коэффицеент c' println read 'c' store \
-#      'Корни_есть' 'Корней_нет' 'b load b load * a load c load * 4 * - 0 >=' if \
-#       println")
-#
-# a.run()
-
-a = Machine(': ffg dup * ; 12 ffg println')
-a.run()
 
