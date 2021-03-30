@@ -3,8 +3,13 @@ import io
 import tokenize
 import sys
 
-# Обратите внимение на то, как у меня реализован if (функция iff). Теперь в if можно писать условия,
+
+# Здравствуйте, обратите внимение на то, как у меня реализован if (функция iff). Теперь в if можно писать условия,
 # оперирующие с values_stack, при этом сам стек не изменится
+
+# в самом начале отделяем все функции и процедуры от основного кода (всё, что ограниченно : и ;)
+# В терминологии этого задания функция (функция - то что с ключевым словл return) добавит на вершину стека
+# только то, что вернёт функция. А процедура просто добавит свой код в конец code основной Machine
 
 
 class Stack(deque):
@@ -25,6 +30,23 @@ def parse(text):
             yield tokval
 
 
+def parse_funcs(lst):
+    result_dict = dict()
+    last_index = None
+    func_name = None
+    for i in range(len(lst)):
+        if lst[i] == ':':
+            last_index = i
+            func_name = lst[i + 1]
+        elif lst[i] == ';':
+            if i - 1 == 'return':
+                result_dict[func_name] = ('func', lst[last_index + 2:i])
+            else:
+                result_dict[func_name] = ('proc', lst[last_index + 2:i])
+
+    return result_dict
+
+
 def parse_help(lst):
     result = []
     for elem in lst:
@@ -35,14 +57,32 @@ def parse_help(lst):
     return result
 
 
+def del_func(lst):
+    result = []
+    flag = 0
+    for elem in lst:
+        if flag == 1 and elem == ';':
+            flag = 0
+        elif elem == ':':
+            flag = 1
+        elif flag == 0:
+            result.append(elem)
+    return result
+
+
 class Machine:
     def __init__(self, code, old_code=[], now=0, values_stack=Stack(),
-                 call_stack=Stack(), heap=dict()):
+                 call_stack=Stack(), heap=dict(), heap_func=dict()):
         self.values_stack = values_stack
         self.call_stack = call_stack
         self.code = list(parse(code))[:-2]
+        self.heap_func = parse_funcs(self.code)
+        self.code = del_func(self.code)
+        self.heap_func.update(heap_func)
         self.code = parse_help(old_code[:now] + self.code)
         self.now = now
+        print(self.code)
+        print(self.heap_func)
         self.heap = heap
         self.slo = {
             '+': self.add,
@@ -70,6 +110,7 @@ class Machine:
             'if': self.iff,
             'over': self.over,
             'info': self.info,
+
 
         }
 
@@ -200,9 +241,23 @@ class Machine:
             pass
         self.push(new_var)
 
+    def exec_func(self, name):
+        func = self.heap_func[name]
+        if func[0] == 'proc':
+            self.code = self.code[:self.now] + func[1] + self.code[self.now:]
+        else:
+            func_machine = Machine('', old_code=self.code + func[1], now=self.now + 1, values_stack=self.values_stack,
+                                   call_stack=self.call_stack, heap=self.heap, heap_func=self.heap_func)
+            func_machine.run()
+            return_value = func_machine.top()
+            self.push(return_value)
+
     def run(self):
         # self.code.append('exit')
         while self.now < len(self.code):
+            if self.code[self.now] in self.heap_func:
+                self.exec_func(self.code[self.now])
+                self.now += 1
             if self.code[self.now] in self.slo.keys():
                 self.slo[self.code[self.now]]()
                 self.now += 1
@@ -210,14 +265,19 @@ class Machine:
                 self.push(self.code[self.now])
                 self.now += 1
 
+
 # Пример снизу определяет наличние корней у квадратного уравнения по коэффицеентам
 
 
-a = Machine(
-    "'Введите коэффицеент a' println read 'a' store \
-     'Введите коэффицеент b' println read 'b' store \
-     'Введите коэффицеент c' println read 'c' store \
-     'Корни_есть' 'Корней_нет' 'b load b load * a load c load * 4 * - 0 >=' if \
-      println")
+# a = Machine(
+#     "'Введите коэффицеент a' println read 'a' store \
+#      'Введите коэффицеент b' println read 'b' store \
+#      'Введите коэффицеент c' println read 'c' store \
+#      'Корни_есть' 'Корней_нет' 'b load b load * a load c load * 4 * - 0 >=' if \
+#       println")
+#
+# a.run()
 
+a = Machine(': ffg dup * ; 12 ffg println')
 a.run()
+
