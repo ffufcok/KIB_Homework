@@ -18,6 +18,12 @@ class Stack(deque):
     def top(self):
         return self[-1]
 
+    def __copy__(self):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        result.__dict__.update(self.__dict__)
+        return result
+
 
 def parse(text):
     stream = io.StringIO(text)
@@ -28,20 +34,6 @@ def parse(text):
             yield int(tokval)
         else:
             yield tokval
-
-
-def exec_func(name, code, now, values_stack, call_stack, heap, heap_func):
-    func = heap_func[name]
-    if func[0] == 'proc':
-        return code[:now + 1] + func[1] + code[now + 1:]
-    else:
-        func_machine = Machine('', old_code=func[1][:-1],
-                               values_stack=values_stack,
-                               call_stack=call_stack,
-                               heap=heap,
-                               heap_func=heap_func)
-        func_machine.run()
-        return func_machine.top()
 
 
 def parse_funcs(lst):
@@ -61,7 +53,7 @@ def parse_funcs(lst):
     return result_dict
 
 
-def parse_help(lst):
+def remove_excess_quote(lst):
     result = []
     for elem in lst:
         if isinstance(elem, str):
@@ -89,11 +81,10 @@ class Machine:
                  call_stack=Stack(), heap=dict(), heap_func=dict()):
         self.values_stack = values_stack
         self.call_stack = call_stack
-        self.code = list(parse(code))[:-2]
-        self.heap_func = parse_funcs(self.code)
-        self.code = del_func(self.code)
+        code = list(parse(code))[:-2]
+        self.heap_func = parse_funcs(code)
         self.heap_func.update(heap_func)
-        self.code = parse_help(old_code + self.code)
+        self.code = remove_excess_quote(old_code + del_func(code))
         self.now = now
         self.heap = heap
         self.slo = {
@@ -139,18 +130,37 @@ class Machine:
 
     def iff(self):
         condition = self.pop()
-        false_clause = list(parse(self.pop()))[:-2]
-        true_clause = list(parse(self.pop()))[:-2]
+        false_clause = self.pop()
+        true_clause = self.pop()
 
-        condition_machine = Machine(condition, old_code=self.code[:self.now + 1], now=self.now + 1,
-                                    values_stack=self.values_stack,
-                                    call_stack=self.call_stack, heap=self.heap)
+        vs_copy = self.values_stack.copy()
+        condition_machine = Machine(condition,
+                                    values_stack=vs_copy,
+                                    call_stack=self.call_stack,
+                                    heap=self.heap,
+                                    heap_func=self.heap_func)
         condition_machine.run()
         decision = condition_machine.top()
+
         if decision:
-            self.code = self.code[:self.now + 1] + true_clause + self.code[self.now + 1:]
+            decision_machine = Machine(true_clause,
+                                       values_stack=vs_copy,
+                                       call_stack=self.call_stack,
+                                       heap=self.heap,
+                                       heap_func=self.heap_func)
+            decision_machine.run()
+            val = condition_machine.top()
+            self.push(val)
+
         else:
-            self.code = self.code[:self.now + 1] + false_clause + self.code[self.now + 1:]
+            decision_machine = Machine(false_clause,
+                                       values_stack=vs_copy,
+                                       call_stack=self.call_stack,
+                                       heap=self.heap,
+                                       heap_func=self.heap_func)
+            decision_machine.run()
+            val = condition_machine.top()
+            self.push(val)
 
     def store(self):
         key = self.pop()
@@ -212,7 +222,9 @@ class Machine:
         self.push(self.pop() / self.pop())
 
     def rem(self):
-        self.push(self.pop() % self.pop())
+        x1 = self.pop()
+        x2 = self.pop()
+        self.push(x2 % x1)
 
     def drop(self):
         self.pop()
@@ -253,21 +265,24 @@ class Machine:
             pass
         self.push(new_var)
 
-    def exe_func(self, name):
+    def execute_function(self, name):
         func = self.heap_func[name]
         if func[0] == 'proc':
-            self.code = exec_func(name, self.code, self.now, self.values_stack, self.call_stack, self.heap,
-                                  self.heap_func)
+            self.code = self.code[:self.now + 1] + func[1] + self.code[self.now + 1:]
         else:
-            vs = self.values_stack.copy()
-            self.push(exec_func(name, self.code, self.now, vs, self.call_stack, self.heap,
-                                self.heap_func))
+            vs_copy = self.values_stack.copy()
+            func_machine = Machine('', old_code=func[1][:-1],
+                                   values_stack=vs_copy,
+                                   call_stack=self.call_stack,
+                                   heap=self.heap,
+                                   heap_func=self.heap_func)
+            func_machine.run()
+            self.push(func_machine.top())
 
     def run(self):
-        # self.code.append('exit')
         while self.now < len(self.code):
             if self.code[self.now] in self.heap_func:
-                self.exe_func(self.code[self.now])
+                self.execute_function(self.code[self.now])
                 self.now += 1
             if self.code[self.now] in self.slo.keys():
                 self.slo[self.code[self.now]]()
@@ -276,3 +291,20 @@ class Machine:
                 self.push(self.code[self.now])
                 self.now += 1
 
+
+# Пример снизу определяет наличние корней у квадратного уравнения по коэффицеентам
+
+
+a = Machine(': get_arg println read cast_int ; \
+"Give me $a" get_arg "a" store \
+"Give me $b" get_arg "b" store \
+"Give me $c" get_arg "c" store \
+"Give me $x" get_arg "x" store \
+"a" load "x" load * "b" load + "x" load * "c" load + dup println stack""')
+a.run()
+
+
+# a = Machine(
+#     ": brain_fuck 'помехи' 'помехи' 'Введите число' println \
+#      read 2 % return; 'Делится_на_2' 'Не_делится_на_2' 'brain_fuck 0 ==' if println 0 jmp")
+# a.run()
